@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Build artifacts
+connectors/build/
+connectors/pybind11/
+connectors/rel/CMakeCache.txt
+connectors/rel/cmake_install.cmake
+connectors/rel/Makefile
+connectors/rel/Makefile2
+connectors/rel/*.so
+connectors/rel/*.so.*
+connectors/rel/*.dir/
+connectors/rel/*.o
+connectors/rel/*.o.d
+connectors/rel/*.txt
+
+# Backups / scratch
+*.bak
+*.bak.*
+*.bak_*
+
+# Checkpoints / logs / maps (large binaries, keep local)
+checkpoints/
+*.ckpt
+*.pth
+*.onnx
+logs/
+envs/v13/maps/

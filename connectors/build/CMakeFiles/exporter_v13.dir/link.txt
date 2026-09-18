@@ -1,1 +1,0 @@
-/usr/bin/c++ -fPIC -O2 -g -DNDEBUG -shared  -o exporter_v13.so CMakeFiles/exporter_v13.dir/v13/exporter.cpp.o 

@@ -1,1 +1,0 @@
-/usr/bin/c++ -fPIC -O2 -g -DNDEBUG -shared  -o connector_v13.so CMakeFiles/connector_v13.dir/v13/common.cpp.o CMakeFiles/connector_v13.dir/v13/connector.cpp.o CMakeFiles/connector_v13.dir/v13/threadconnector.cpp.o  -Wl,-rpath,/home/administrator/vcmi-native/rel/bin /usr/lib/x86_64-linux-gnu/libboost_system.so.1.83.0 /home/administrator/vcmi-native/rel/bin/libmlclient.so 

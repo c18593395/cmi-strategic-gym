@@ -450,67 +450,9 @@ namespace Connector::V13::Thread {
         return {static_cast<int>(res), pstate};
     }
 
-    void Connector::start() {
-        ASSERT_STATE("start", ConnectorState::NEW);
-
-        setvbuf(stdout, NULL, _IONBF, 0);
-        LOG("start");
-
-        LOG("obtain lock2");
-        std::unique_lock lock2(m2);
-        LOG("obtain lock2: done");
-
-        LOG("release Python GIL");
-        py::gil_scoped_release release;
-
-        // Adventure mode: skip client wait, register callback before init_vcmi
-        bool is_adventure = (initargs.mapname.find("s1") != std::string::npos ||
-                             initargs.mapname.find("mini") != std::string::npos ||
-                             initargs.mapname.find("adventure") != std::string::npos ||
-                             initargs.mapname.find(".h3m") != std::string::npos);
-
-        if (is_adventure) {
-            LOG("Adventure mode — skipping client wait, registering callback");
-            g_adventure_cb = adventure_cb_trampoline;
-            g_adventure_cb_userdata = this;
-            register_adventure_delegate(handleAdventureCallback, (void*)this);
-            _adventure_mode = true;
-        } else {
-            // Battle mode — wait for client connection
-            std::function<bool()> predicate = [this] {
-                return (connectedClient0 || red != "MMAI_USER")
-                    && (connectedClient1 || blue != "MMAI_USER");
-            };
-
-            LOGFMT("cond2.wait(lock2, %1%s, predicate)", bootTimeout);
-            auto res = cond_wait(__func__, 2, cond2, lock2, bootTimeout, predicate);
-            if (res == ReturnCode::TIMEOUT) {
-                throw VCMIConnectorException(boost::str(boost::format(
-                    "timeout after %ds while waiting for client") % bootTimeout));
-                return;
-            } else if (res == ReturnCode::SHUTDOWN) {
-                LOG("connector is shutting down...");
-                return;
-            } else if (res != ReturnCode::OK) {
-                throw VCMIConnectorException(boost::str(boost::format(
-                    "unexpected return code from cond_wait: %d") % EI(res)));
-                return;
-            }
-
-            {
-                // Successfully obtaining these locks means the
-                // clients are ready and waiting for state
-                LOG("obtain lock0");
-                std::unique_lock lock0(m0);
-                LOG("obtain lock0: done");
-
-                LOG("obtain lock1");
-                std::unique_lock lock1(m1);
-                LOG("obtain lock1: done");
-
-                LOG("release lock0 and lock1");
-            }
-        }
+    void Connector::init() {
+        LOG("init (main thread)");
+        ASSERT_STATE("init", ConnectorState::NEW);
 
         auto f_getAction0 = [this](const MMAI::Schema::IState* s) {
             return this->getAction(s, 0);
@@ -550,8 +492,96 @@ namespace Connector::V13::Thread {
         }
 
         // This must happen in the main thread (SDL requires it)
-        LOG("call init_vcmi(...)");
-        init_vcmi(leftModel, rightModel, initargs);
+        initargs = std::make_unique<ML::InitArgs>(
+            _mapname, leftModel, rightModel,
+            _redAllowMlBot, _blueAllowMlBot,
+            0,                      // maxBattles (hardcoded, matching old behavior)
+            _seed,
+            _randomHeroes, _randomObstacles, _townChance, _warmachineChance,
+            _randomArmies ? 100 : 0,  // randomStackChance (mapped from v13's randomArmies bool)
+            _tightFormationChance,
+            _randomTerrainChance,
+            _leftVipChance,
+            _rightVipChance,
+            _battlefieldPattern,
+            _manaMin, _manaMax,
+            _swapSides,
+            _loglevelGlobal, _loglevelAI, _loglevelStats,
+            _statsMode, _statsStorage,
+            60000,                  // statsTimeout (hardcoded, matching old behavior)
+            _statsPersistFreq,
+            // ML fix (2026-08-17): headless 参数化 — 环境变量 STRATEGIC_HEADLESS=0 启用 GUI (有头 MVP)
+            // 默认 true (训练/采集无头零影响)
+            getenv("STRATEGIC_HEADLESS") == nullptr || strcmp(getenv("STRATEGIC_HEADLESS"), "0") != 0   // headless
+        );
+        initargs->red = redAdventureAI;      // 冒险AI: red 玩家 (adventureAlliedAI)
+        initargs->blue = blueAdventureAI;    // 冒险AI: blue/其他 (adventureEnemyAI)
+        LOG("call init_vcmi");
+        // Workaround: boost::filesystem::create_directories on symlink fails
+        // Set XDG_DATA_HOME to a real directory before VCMI init
+        setenv("XDG_DATA_HOME", "/home/administrator/.local/share", 0);
+        ML::init_vcmi((void*)initargs.get());
+        LOG("init_vcmi returned OK");
+        connstate = ConnectorState::INITIALIZED;
+    }
+
+    void Connector::start() {
+        ASSERT_STATE("start", ConnectorState::INITIALIZED);
+
+        setvbuf(stdout, NULL, _IONBF, 0);
+        LOG("start (background thread)");
+
+        LOG("obtain lock2");
+        std::unique_lock lock2(m2);
+        LOG("obtain lock2: done");
+
+        LOG("release Python GIL");
+        py::gil_scoped_release release;
+
+        // Adventure mode: register callback before start_vcmi
+        bool is_adventure = (_mapname.find("s1") != std::string::npos ||
+                             _mapname.find("mini") != std::string::npos ||
+                             _mapname.find("adventure") != std::string::npos ||
+                             _mapname.find(".h3m") != std::string::npos);
+
+        if (is_adventure) {
+            LOG("Adventure mode — registering callback");
+            g_adventure_cb = adventure_cb_trampoline;
+            g_adventure_cb_userdata = this;
+            register_adventure_delegate(handleAdventureCallback, (void*)this);
+            _adventure_mode = true;
+        } else {
+            // Battle mode — wait for client connection
+            std::function<bool()> predicate = [this] {
+                return (connectedClient0 || red != "MMAI_USER")
+                    && (connectedClient1 || blue != "MMAI_USER");
+            };
+
+            LOGFMT("cond2.wait(lock2, %1%s, predicate)", bootTimeout);
+            auto res = cond_wait(__func__, 2, cond2, lock2, bootTimeout, predicate);
+            if (res == ReturnCode::TIMEOUT) {
+                throw VCMIConnectorException(boost::str(boost::format(
+                    "timeout after %ds while waiting for client") % bootTimeout));
+                return;
+            } else if (res == ReturnCode::SHUTDOWN) {
+                LOG("connector is shutting down...");
+                return;
+            } else if (res != ReturnCode::OK) {
+                throw VCMIConnectorException(boost::str(boost::format(
+                    "unexpected return code from cond_wait: %d") % EI(res)));
+                return;
+            }
+
+            {
+                LOG("obtain lock0");
+                std::unique_lock lock0(m0);
+                LOG("obtain lock0: done");
+                LOG("obtain lock1");
+                std::unique_lock lock1(m1);
+                LOG("obtain lock1: done");
+                LOG("release lock0 and lock1");
+            }
+        }
 
         LOG("set connstate = AWAITING_STATE");
         connstate = ConnectorState::AWAITING_STATE;
@@ -560,7 +590,7 @@ namespace Connector::V13::Thread {
         lock2.unlock();
 
         LOG("launch VCMI (will never return)");
-    ML::start_vcmi();
+        ML::start_vcmi();
 
         if (!_shutdown)
             std::cerr << "ERROR: ML::start_vcmi() returned, but shutdown is false";

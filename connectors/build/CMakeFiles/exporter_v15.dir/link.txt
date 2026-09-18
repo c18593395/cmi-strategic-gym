@@ -1,1 +1,0 @@
-/usr/bin/c++ -fPIC -O2 -g -DNDEBUG -shared  -o exporter_v15.so CMakeFiles/exporter_v15.dir/v15/exporter.cpp.o CMakeFiles/exporter_v15.dir/v15/names.cpp.o 
