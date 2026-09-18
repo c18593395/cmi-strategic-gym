@@ -17,6 +17,8 @@ connectors/rel/*.dir/
 connectors/rel/*.o
 connectors/rel/*.o.d
 connectors/rel/*.txt
+connectors/rel/CMakeFiles/
+connectors/rel/pybind11/
 
 # Backups / scratch
 *.bak
