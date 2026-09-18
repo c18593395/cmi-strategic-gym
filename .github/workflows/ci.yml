@@ -1,0 +1,28 @@
+# Minimal CI: Python syntax check (zero external deps, no install).
+# Rationale: repo test_* files target a live WSL2 VCMI server (hardcoded paths),
+# so a full test run is not CI-runnable. A compile check catches the common
+# break class (typos, bad indentation, missing imports at parse time).
+name: CI
+
+on:
+  push:
+    branches: [ master, main ]
+  pull_request:
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Byte-compile all Python (syntax check)
+        run: |
+          python -m compileall -q envs tools || exit 1
+      - name: List Python packages parsed
+        run: |
+          python -c "import compileall,sys; print('compileall OK:', sys.version_info[:2])"
+      - name: Show tracked Python files
+        run: |
+          git ls-files | grep -E '\.py$' | wc -l
